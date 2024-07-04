@@ -1,0 +1,8 @@
+bool req
+---
+std_msgs/Float64 kp_1
+std_msgs/Float64 ki_1
+std_msgs/Float64 kd_1
+std_msgs/Float64 kp_2
+std_msgs/Float64 ki_2
+std_msgs/Float64 kd_2

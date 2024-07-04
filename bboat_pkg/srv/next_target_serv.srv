@@ -1,0 +1,4 @@
+bool req
+---
+geometry_msgs/Pose next_trgt_pose
+bool continuing_mission

@@ -1,0 +1,19 @@
+elif mode.mission == "PTN":
+    pt = self.client_target(True)
+    x_tgt, y_tgt = pt.target.x, pt.target.y
+
+    # err_x_in_Rrob = (x_tgt-x_rob)*math.cos(psi_rob) + (y_tgt-y_rob)*math.sin(psi_rob)
+    # err_y_in_Rrob = -(x_tgt-x_rob)*math.sin(psi_rob) + (y_tgt-y_rob)*math.cos(psi_rob)
+
+    err_x_R0 = x_tgt - x_rob
+    err_y_R0 = x_tgt - y_rob
+
+
+    u1 = 0.0
+
+    psi_des = math.atan2(err_y_R0, err_x_R0)
+    print(psi_des*180/math.pi)
+
+    Kp = 0.5
+    # print(f'err {sawtooth(psi_des - psi_rob)}')
+    u2 = Kp*sawtooth(psi_des - psi_rob)

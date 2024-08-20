@@ -1,7 +1,7 @@
 <launch>
 	
 	<!-- arg name="filepath" default="/home/user/bboat_ws/src/bboat_pkg/mission_files/default_mission.txt" / -->
-	<arg name="filepath" default="/home/luiz/catkin_ws/src/bboat_pkg/mission_files/sinus_ensta.txt" />
+	<arg name="filepath" default="/home/luiz/catkin_ws/src/bboat_pkg/mission_files/4_pompes_4.txt" />
 	<arg name="mission_simu" default="0" />
 	
 	<arg name="record" default="false" />	

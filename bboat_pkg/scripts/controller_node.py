@@ -10,12 +10,15 @@ from pyproj import Transformer
 from std_msgs.msg import Float64
 from geometry_msgs.msg import PoseStamped, Point, Twist
 
-from bboat_pkg.msg import cmd_msg
+from bboat_pkg.msg import cmd_msg, mode_msg
 from bboat_pkg.srv import mode_serv, mode_servResponse, current_target_serv, gain_serv, gain_servResponse, path_description_serv
 
 from lib.bboat_lib import *
 
 from command_lib import *
+import time
+
+
 
 class ControllerNode(): 
 	'''
@@ -41,7 +44,15 @@ class ControllerNode():
 
 		self.speed_vsb = np.zeros((3,1))
 
+
 		# --- Subs
+
+		self.mode_msg = None
+		self.sub_mode = rospy.Subscriber('/modepub', mode_msg, self.Mode_callback)
+		rospy.wait_for_message('/modepub', mode_msg,  timeout=None)
+
+		rospy.logwarn("HERE")
+
 		self.sub_pose_robot = rospy.Subscriber('/pose_robot_R0', PoseStamped, self.Pose_Robot_callback)
 		rospy.wait_for_message('/pose_robot_R0', PoseStamped, timeout=None)
 
@@ -52,10 +63,13 @@ class ControllerNode():
 		self.vel_robot_RB = np.zeros((3,1))
 		self.sub_vel_robot = rospy.Subscriber('/vel_robot_RB', Twist, self.Vel_Robot_callback)
 
+
+
 		self.inte_1 = 0
 
-
 		# --- Pubs
+		self.pub_target = rospy.Publisher('/control_target', Point, queue_size=10)
+
 		self.pub_cmd = rospy.Publisher('/command', cmd_msg, queue_size=10)
 
 		# --- Services
@@ -105,7 +119,6 @@ class ControllerNode():
 		self.path_points = reconstruct_spline_matrix(self.path_points_client())
 
 
-		rospy.Service('/control_target', current_target_serv, self.Current_Target_callback)
 		self.control_target = np.zeros((3,1))
 
 		# Control variables
@@ -116,14 +129,26 @@ class ControllerNode():
 		self.error_state = initiate_error_state(self.pose_robot, self.vel_robot_RB, 0, self.path_points)
 		self.last_u1, self.last_u2 = 0, 0
 
+		self.s = 0
+
 
 		# --- Init done
 		rospy.loginfo('[CONTROLLER] Controller node Start')
 
 	def loop(self): 
+
 		while not rospy.is_shutdown():
-			mode = self.client_mode(True)
-			gains = self.client_gains(True)
+
+			start_time = time.perf_counter()
+
+			# mode = self.client_mode(True)
+			mode = self.mode_msg
+
+			time_subscribers1 = time.perf_counter()
+
+			# gains = self.client_gains(True)
+
+			time_subscribers2 = time.perf_counter()
 
 
 			if mode.mode == "AUTO":	
@@ -200,15 +225,20 @@ class ControllerNode():
 
 				elif mode.mission == "PTN":
 
-					command_type = "AUV"
+					command_type = "SLID" #Select command law
 
-					# For Matrix H control (Trajectory Following	):
+					# For Matrix H control (Trajectory Following):
 					if(command_type == "H"):
-						target, d_target, dd_target = get_target_traj(self.time, self.path_points)
+
+						start_time_traj = time.perf_counter()
+						target, d_target, dd_target, self.s = get_target_traj(self.s, self.dT, self.path_points)
 
 						self.control_target = target
 
+						start_time_com = time.perf_counter()
 						u1, u2, self.state_error_integral = command_h(self.pose_robot, target, d_target, self.state_error_integral, self.dT)
+
+						end_time_com = time.perf_counter()
 
 					# For Path Following AUV
 					if(command_type == "AUV"):
@@ -218,50 +248,62 @@ class ControllerNode():
 
 						u_target = 1
 
-						u1, u2, ds, xs, ys= command_auv_model(vitesse, self.error_state, u_target, self.path_points)
+						u1, u2, ds, xs, ys= command_auv_model(vitesse, self.error_state, u_target, self.path_points)						
 
 						self.control_target = np.array([[xs],[ys],[0]])
 
-						self.error_state = update_error_state(self.error_state, self.vel_robot_RB, self.pose_robot, ds, self.dT, self.path_points)
-
-						self.last_u1, self.last_u2 = u1, u2
+						self.error_state = update_error_state(self.error_state, vitesse, self.pose_robot, ds, self.dT, self.path_points)
 
 					# For simple LOS
 					if(command_type == "LOS"):
 
-						u_target = 5
+						u_target = 1
 
 						target = get_target_los(self.pose_robot, self.path_points)
-						u1, u2 = command_los(self.pose_robot, target, u_target)
+						u1, u2, self.state_error_integral = command_los(self.pose_robot, target, u_target,self.state_error_integral, self.dT)
 
-						self.control_target = target
+						trg = Point()
+						trg.x = target[0]
+						trg.y = target[1]
+						trg.z = 0
 
-					# pass
+						self.control_target = np.array([target[0][0], target[1][0], 0])
+
 					if(command_type == "FBLIN" or command_type == "SLID"):
+						
 						# vitesse = np.array([[self.last_u1],[0],[self.last_u2]]) #seulement pour mode simulation
 						vitesse = self.vel_robot_RB
+						start_time_traj = time.perf_counter()
 
-						target, d_target, dd_target = get_target_traj(self.time, self.path_points)
-						self.control_target = target
+						target, d_target, dd_target, self.s = get_target_traj(self.s, self.dT, self.path_points)
+						self.control_target = np.array([target[0][0], target[1][0], 0])						# print(self.s)
+						start_time_com = time.perf_counter()
 
 						target = target[:2]
 						d_target = d_target[:2]
 						dd_target = dd_target[:2] 
 						dn_state = (J(self.pose_robot) @ vitesse)[:2]
 
+						self.state_error_integral += (target - self.pose_robot[:2]) * self.dT
 
 						if(command_type == "FBLIN"):
-							k = dd_target + 2 * (d_target - dn_state) + (target - self.pose_robot[:2])
+							k = dd_target + 0 * (d_target - dn_state) + 0.5*(target - self.pose_robot[:2]) + 0 * self.state_error_integral
 						elif(command_type == "SLID"):
-							k = 5*np.sign(2*(d_target - dn_state) + 2*(target - self.pose_robot[:2]))
+							k = 1*np.sign((d_target - dn_state) + 2*(target - self.pose_robot[:2]))
 
 						u1, u2 = command_fblin(self.pose_robot, vitesse, k, self.dT)
 
 						# print(self.last_u1)
+						end_time_com = time.perf_counter()
 
-						self.control_target = target
+						# self.control_target = target
+
+				start_after_com = time.perf_counter()
 
 				self.time += self.dT
+				aux = u1
+				u1 = u2
+				u2 = aux
 				# ---
 				# Build and publish command message
 				if abs(u1) > MAX_SPEED_FWRD:
@@ -269,9 +311,14 @@ class ControllerNode():
 				if abs(u2) > MAX_SPEED_TURN:
 					u2 = np.sign(u2)*MAX_SPEED_TURN	
 
+				# if abs(u2) > MAX_SPEED_FWRD:
+				# 	u2 = np.sign(u2)*MAX_SPEED_FWRD
+				# if abs(u1) > MAX_SPEED_TURN:
+				# 	u1 = np.sign(u1)*MAX_SPEED_TURN	
+
 				# Favore rotation -> don't move forward when turning is required	
-				if abs(u2) > U2_THRESH:
-					u1 = 0
+				# if abs(u2) > U2_THRESH:
+				# 	u1 = 0
 
 				self.last_u1, self.last_u2 = u1, u2
 
@@ -281,7 +328,11 @@ class ControllerNode():
 
 				self.pub_cmd.publish(cmd)
 
+				self.pub_target.publish(Point(self.control_target[0], self.control_target[1], self.control_target[2]))
+
+
 			self.rate.sleep()
+			end_time = time.perf_counter()
 
 	def Pose_Robot_callback(self, msg):
 		'''
@@ -319,8 +370,10 @@ class ControllerNode():
 		trgt.x, trgt.y = self.control_target[0, 0], self.control_target[1, 0]
 
 		return trgt
-
 	
+	def Mode_callback(self, msg):
+		self.mode_msg = msg
+
 
 if __name__ == '__main__':
     rospy.init_node('controller')

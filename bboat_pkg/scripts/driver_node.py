@@ -12,7 +12,7 @@ from sensor_msgs.msg import Joy, BatteryState
 from mavros_msgs.msg import State, OverrideRCIn, ManualControl
 
 from bboat_pkg.srv import reset_lamb_serv, mode_serv, mode_servResponse, lambert_ref_serv, gain_serv, reset_vsb_serv, gain_servResponse
-from bboat_pkg.msg import cmd_msg
+from bboat_pkg.msg import cmd_msg, mode_msg
 from lib.bboat_lib import *
 
 from subprocess import call
@@ -107,17 +107,29 @@ class DriverNode():
             try:
                 self.client_ref_lambert = rospy.ServiceProxy('/lambert_ref', lambert_ref_serv)
                 connected = True
-            except resoyServiceException as exc:
+            except rospyServiceException as exc:
                 rospy.logwarn(f'[DRIVER] Lambert ref service cannot be reached - {str(exc)}')
                 connected = False
 
         self.client_reset_vsb = rospy.ServiceProxy('/reset_vsb', reset_vsb_serv)
 
+        self.mode_publisher = rospy.Publisher('/modepub', mode_msg , queue_size=10)
 
-        rospy.Service('/mode', mode_serv, self.Mode_Service_callback)
+        while self.mode_publisher.get_num_connections() == 0:
+            rospy.loginfo("Esperando por subscribers...")
+            rospy.sleep(1)
+
+        first_mode_msg = mode_msg()
+        first_mode_msg.mode = self.mode
+        first_mode_msg.mission = self.auto_mission
+
+
+        self.mode_publisher.publish(first_mode_msg)
 
 
         rospy.Service('/gains', gain_serv, self.Gain_Service_callback)
+        rospy.Service('/mode', mode_serv, self.Mode_Service_callback)
+
 
         # --- Init done
         rospy.loginfo('[DRIVER] Driver Node Start')
@@ -131,8 +143,11 @@ class DriverNode():
             # Build and publish override message depending on mode
             rc_msg = OverrideRCIn()
             if self.mode == "MANUAL":
-                fwrd = (1500+500*self.joy_fwrd) #int
-                turn = (1500-500*self.joy_turn) #int
+                #fwrd = (1500+500*self.joy_fwrd) #int
+                #turn = (1500-500*self.joy_turn) #int
+
+                fwrd = (1500-500*self.joy_turn) #int
+                turn = (1500+500*self.joy_fwrd) #int
 
                 fwrd = int(0.15*fwrd + 0.85*self.prev_fwrd)
                 turn = int(0.5*turn + 0.5*self.prev_turn)
@@ -207,6 +222,12 @@ class DriverNode():
                     self.mode = "MANUAL"
                 rospy.loginfo(f'[DRIVER] {self.mode}')
 
+                msg = mode_msg()
+                msg.mode = self.mode
+                msg.mission = self.auto_mission
+
+                self.mode_publisher.publish(msg)
+
             if buttons[2]: 
                 self.client_reset_vsb(True)
 
@@ -233,6 +254,13 @@ class DriverNode():
                     self.mission_index = 0
                 self.auto_mission = Missions[self.mission_index]
                 rospy.loginfo(f'[DRIVER] Switching Mission to {self.auto_mission}')
+
+                msg = mode_msg()
+                msg.mode = self.mode
+                msg.mission = self.auto_mission
+
+                self.mode_publisher.publish(msg)
+
             elif axes[6] == 1:
                 if self.mission_index > 0:
                     self.mission_index -=1
@@ -240,6 +268,12 @@ class DriverNode():
                     self.mission_index = len(Missions)-1
                 self.auto_mission = Missions[self.mission_index]            
                 rospy.loginfo(f'[DRIVER] Switching Mission to {self.auto_mission}')
+
+                msg = mode_msg()
+                msg.mode = self.mode
+                msg.mission = self.auto_mission
+
+                self.mode_publisher.publish(msg)
 
 
         # Joystick values between -1 and 1

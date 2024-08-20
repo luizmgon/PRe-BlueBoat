@@ -5,6 +5,7 @@ import numpy as np
 import math
 
 from geometry_msgs.msg import  PoseStamped, TwistStamped, Point
+from bboat_pkg.msg import mode_msg
 # from bboat_pkg.srv import mode_serv, mode_servResponse
 # from bboat_pkg.msg import cmd_msg
 from lib.bboat_lib import *
@@ -26,7 +27,7 @@ class SimuNode():
 		self.rate = rospy.Rate(1/self.dT)
 
 		# --- Simulated robot state and cmd
-		self.X = np.zeros((3,1))
+		self.X = np.array([[0], [0], [0*np.pi]])
 		self.U = np.zeros((2,1))
 
 		# --- Subs
@@ -36,8 +37,21 @@ class SimuNode():
 		self.max_speed_turn = 1 #rad/s -> ~30cm between thruster and center
 
 		# --- Pubs
+		self.mode_publisher = rospy.Publisher('/modepub', mode_msg , queue_size=10)
+
+		while self.mode_publisher.get_num_connections() == 0:
+			rospy.loginfo("Esperando por subscribers...")
+			rospy.sleep(1)
+
+		first_mode_msg = mode_msg()
+		first_mode_msg.mode = "AUTO"
+		first_mode_msg.mission = "PTN"
+
+
+		self.mode_publisher.publish(first_mode_msg)
 		self.pub_pose_R0 = rospy.Publisher('/pose_robot_R0', PoseStamped, queue_size=10)
 
+	
 		# --- Services
 		rospy.Service('/mode', mode_serv, self.Mode_Service_callback)
 

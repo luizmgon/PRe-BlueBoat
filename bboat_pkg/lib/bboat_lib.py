@@ -25,7 +25,7 @@ from matplotlib.pyplot import *
 from bboat_pkg.msg import *
 
 MAX_SPEED_FWRD = 2.5 #m/s Bluerobotics website 
-MAX_SPEED_TURN = 0.7 #rad/s -> ~30cm between thruster and center
+MAX_SPEED_TURN = 2.5 #rad/s -> ~30cm between thruster and center
 
 U2_THRESH = 0.75
 
